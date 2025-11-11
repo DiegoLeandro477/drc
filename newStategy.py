@@ -3,33 +3,37 @@ import time
 # =-=-=-=-=-=-=-=-=
 import os
 import collections
-
-messages = []
+import bot
 
 NON_EXPLORED = "?"
 EXPLORED = "."
 ROBO = "R"
-UNVALIABLE = "X"
+UNVALIABLE = "▣"
+OBSTACLE = "X"
 START = "★"
 BLACK_SQUARE = "■"
 WHITE_SQUARE = "□"
 DISCARD = "O"
-
-arena = collections.deque([collections.deque([EXPLORED])])
-
-pieces = {
-    "start": [0, 0],
-    "discards": collections.deque(),
-    "robo": [0, 0],
-}
-
-
-square_char = WHITE_SQUARE  # Definir automaticamente com base no que o robo está vendo
+PHARMACY = "F"
+timer = 0.1
 
 RIGHT = "d"
 LEFT = "a"
 UP = "w"
 DOWN = "s"
+
+arena = collections.deque([collections.deque([EXPLORED])])
+messages = []
+
+pieces = {
+    START: [0, 0],
+    DISCARD: collections.deque(),
+    OBSTACLE: collections.deque(),
+    ROBO: [0, 0],
+}
+
+square_char = WHITE_SQUARE  # Definir automaticamente com base no que o robo está vendo
+
 
 # Estado de limite da arena. False = pode expandir, True = limite ('X') definido.
 boundaries_set = {
@@ -61,14 +65,48 @@ hasCubes = False
 # --- FUNÇÕES DE EXIBIÇÃO ---
 
 
+def reset_simulation():
+    global arena, messages, pieces, square_char, boundaries_set
+    arena = collections.deque([collections.deque([EXPLORED])])
+    messages = []
+
+    pieces = {
+        START: [0, 0],
+        DISCARD: collections.deque(),
+        OBSTACLE: collections.deque(),
+        ROBO: [0, 0],
+    }
+
+    square_char = (
+        WHITE_SQUARE  # Definir automaticamente com base no que o robo está vendo
+    )
+
+    # Estado de limite da arena. False = pode expandir, True = limite ('X') definido.
+    boundaries_set = {
+        UP: False,
+        DOWN: False,
+        LEFT: False,
+        RIGHT: False,
+    }
+
+
 def clear_screen():
     """Limpa o console para uma exibição mais limpa."""
     os.system("cls" if os.name == "nt" else "clear")
 
 
-def show_arena():
+def debug(txt, timer):
+    print(f"debug[{timer}s]: {txt}")
+    time.sleep(timer)
+
+
+def show_arena(path=[]):
     """Imprime a arena no console com bordas."""
     global messages
+    clear_screen()
+
+    bot.print_matrix()
+
     print("🗺️ Arena:")
     COL_WIDTH = 4
     total_width = len(arena[0]) * COL_WIDTH + 1
@@ -87,68 +125,77 @@ def show_arena():
 
         elif isinstance(pos, collections.deque):
             for dis_pos in pos:
-                pieces_pos[(dis_pos[0], dis_pos[1])] = "discard"
+                pieces_pos[(dis_pos[0], dis_pos[1])] = f"{name}_{len(pieces_pos)}"
 
     for row in range(len(arena)):
         for col in range(len(arena[0])):
             content = arena[row][col]
             if (row, col) in pieces_pos:
                 piece_name = pieces_pos[(row, col)]
-                if piece_name == "robo":
+                if piece_name == ROBO:
                     content = ROBO
-                elif piece_name == "start":
+                elif (row, col) in path:
+                    content = "$"
+                elif piece_name == START:
                     content = START
-                elif "obs" in piece_name:
-                    content = UNVALIABLE
-                elif "discard" in piece_name:
+                elif OBSTACLE in piece_name:
+                    content = OBSTACLE
+                elif DISCARD in piece_name:
                     content = DISCARD
             print(f"| {content} ", end="")
         print("|")
 
     print("-" * total_width)
+    for i in messages:
+        print(i)
 
-    print(f"🤖 Posição: ({pieces['robo'][0]}, {pieces['robo'][1]}), dir:{direction}")
-    print(
-        f"Bordas Encontradas(X): W:{boundaries_set[UP]}, S:{boundaries_set[DOWN]}, A:{boundaries_set[LEFT]}, D:{boundaries_set[RIGHT]}"
-    )
-    print(f"Quadrado: {square_char}")
-    if messages:
-        print(f"Msg:{messages}")
-        messages = []
+    messages = []
 
-    print("\nComandos: [w/a/s/d] Mover, [f] Marcar Fim, [x] Marcar obstaculo, [q] Sair")
+    time.sleep(timer)
 
 
 def add_discard():
-    global messages, pieces
+    global pieces
 
-    if pieces["robo"] not in [tuple(p) for p in pieces["discards"]]:
+    if pieces[ROBO] not in [tuple(p) for p in pieces[DISCARD]]:
         # Adiciona a posição: Usa .append() para colocar a nova coordenada
-        pieces["discards"].append([pieces["robo"][0], pieces["robo"][1]])
-        print(pieces["discards"])
+        pieces[DISCARD].append([pieces[ROBO][0], pieces[ROBO][1]])
+        print(pieces[DISCARD])
 
-        messages.append(
-            f"📦 Área de descarte encontrada e adicionada em {pieces['robo']}."
-        )
-    else:
-        messages.append(f"🚫 Área de descarte em {pieces['robo']} já registrada.")
+
+def add_pharmacy():
+    """
+    Adiciona Obstaculo na frente do robo
+    """
+    global pieces, arena
+
+    movement = movements[direction]
+
+    new_r = pieces[ROBO][0] + movement[0]
+    new_c = pieces[ROBO][1] + movement[1]
+
+    if not (0 <= new_r < len(arena) and 0 <= new_c < len(arena[0])):
+        expand_arena()
+
+    new_obs_name = PHARMACY
+    pieces[new_obs_name] = [pieces[ROBO][0], pieces[ROBO][1]]
 
 
 # --- Funções de Expansão ---
 
 
-def adjust_positions(row, col):
+def adjust_positions(movement):
     global pieces
 
     for _, pos in pieces.items():
         if isinstance(pos, list) or isinstance(pos, tuple):
 
-            pos[0] += row
-            pos[1] += col
+            pos[0] += movement[0]
+            pos[1] += movement[1]
         elif isinstance(pos, collections.deque):
             for discard_pos in pos:
-                discard_pos[0] += row
-                discard_pos[1] += col
+                discard_pos[0] += movement[0]
+                discard_pos[1] += movement[1]
 
 
 def expand_arena(char_to_fill=NON_EXPLORED):
@@ -165,14 +212,14 @@ def expand_arena(char_to_fill=NON_EXPLORED):
         new_row = [char_to_fill] * len(arena[0])
 
         # 2. Respeita limites laterais (A e D)
-        if boundaries_set[DOWN]:
+        if boundaries_set[LEFT]:
             new_row[0] = UNVALIABLE
         if boundaries_set[RIGHT]:
             new_row[len(arena[0]) - 1] = UNVALIABLE
 
         if direction == UP:
             arena.appendleft(collections.deque(new_row))  # -> 0(1)
-            adjust_positions(1, 0)  # Desce todas as peças
+            adjust_positions(movements[DOWN])  # Desce todas as peças
 
         elif direction == DOWN:
             arena.append(collections.deque(new_row))  # Mantém consistência
@@ -198,7 +245,7 @@ def expand_arena(char_to_fill=NON_EXPLORED):
             getattr(arena[r], insert_func)(new_char)
 
         if direction == LEFT:
-            adjust_positions(0, 1)  # Move todas as peças para direita
+            adjust_positions(movements[RIGHT])  # Move todas as peças para direita
 
 
 # --- Funções de Limite ---
@@ -206,7 +253,7 @@ def expand_arena(char_to_fill=NON_EXPLORED):
 
 def is_on_edge(current_key):
     """Verifica se o robô está na borda mais externa na direção de 'current_key'."""
-    robo_r, robo_c = pieces["robo"]
+    robo_r, robo_c = pieces[ROBO]
     rows = len(arena)
     cols = len(arena[0])
 
@@ -256,21 +303,15 @@ def add_obstracle():
     """
     Adiciona Obstaculo na frente do robo
     """
-    global pieces, arena
+    global pieces
 
-    movement = movements[direction]
+    pos = (
+        pieces[ROBO][0] + movements[direction][0],
+        pieces[ROBO][1] + movements[direction][1],
+    )
 
-    new_r = pieces["robo"][0] + movement[0]
-    new_c = pieces["robo"][1] + movement[1]
-
-    if not (0 <= new_r < len(arena) and 0 <= new_c < len(arena[0])):
-        expand_arena()
-
-    new_obs_name = f"obs_{len(pieces)}"  # Cria um nome único
-    pieces[new_obs_name] = [
-        pieces["robo"][0] + movement[0],
-        pieces["robo"][1] + movement[1],
-    ]
+    pieces[OBSTACLE].append([pos[0], pos[1]])
+    debug(f"obst:{pieces[OBSTACLE]}", 5)
 
 
 # Calcular a heuristica das celulas
@@ -283,8 +324,9 @@ def a_stars(destiny):
     if isinstance(destiny, list):
         destiny = tuple(destiny)
 
-    start_pos = tuple(pieces["robo"])
+    start_pos = tuple(pieces[ROBO])
     paths_discovered = []
+    obstacles = {tuple(obs_pos) for obs_pos in pieces[OBSTACLE]}
     if not start_pos:
         return None
     paths_discovered.append((0, start_pos))
@@ -308,7 +350,7 @@ def a_stars(destiny):
             if (
                 0 <= new_position[0] < len(arena)
                 and 0 <= new_position[1] < len(arena[0])
-            ) and arena[new_position[0]][new_position[1]] not in [UNVALIABLE]:
+            ) and new_position not in obstacles:
                 if new_position not in cost or new_cost < cost[new_position]:
                     cost[new_position] = new_cost
                     priority = new_cost + heuristics(new_position, destiny)
@@ -324,7 +366,7 @@ def find_closest_unexplored():
     global arena, pieces
 
     # 1. Inicializa a fila de busca (BFS)
-    start_pos = tuple(pieces["robo"])
+    start_pos = tuple(pieces[ROBO])
     queue = collections.deque([start_pos])
 
     # Conjunto para rastrear posições já visitadas para evitar loops
@@ -351,12 +393,116 @@ def find_closest_unexplored():
                 cell_content = arena[next_r][next_c]
                 next_pos = (next_r, next_c)
 
-                if cell_content != UNVALIABLE and next_pos not in visited:
+                if cell_content != OBSTACLE and next_pos not in visited:
                     visited.add(next_pos)
                     queue.append(next_pos)
 
     # Se a fila esvaziar e o "?" não for encontrado
     return None
+
+
+def get_closest_edge_target(start_pos, direction_key):
+    """
+    Econtra o alvo acessível (não "X") mais próximo em uma borda
+    """
+    max_r = len(arena) - 1  # índice da última linha
+    max_c = len(arena[0]) - 1  # índice da última coluna
+    robo_r, robo_c = start_pos  # Posição inicial do robô
+
+    primary_targey = None
+    search_axis = None  # "row" (procura cima/baixo) ou "col" (direita/esquerda)
+
+    if direction_key == UP:
+        primary_targey = (0, robo_c)
+        search_axis = "col"
+
+    elif direction_key == DOWN:
+        primary_targey = (max_r, robo_c)
+        search_axis = "col"
+
+    elif direction_key == LEFT:
+        primary_targey = (robo_r, 0)
+        search_axis = "row"
+
+    elif direction_key == RIGHT:
+        primary_targey = (robo_r, max_c)
+        search_axis = "row"
+
+    else:
+        return None  # Direção inválida
+
+    # Pega as coordenadas do alvo primeiro
+
+    pr, pc = primary_targey
+
+    if (0 <= pr <= max_r and 0 <= pc <= max_c) and arena[pr][pc] != OBSTACLE:
+        return primary_targey
+
+    offset = 1
+
+    while True:
+        # Celulas a checar nesse offset
+        check_cells = []
+
+        if search_axis == "col":
+            check_cells.append((pr, pc - offset))
+            check_cells.append((pr, pc + offset))
+
+        elif search_axis == "row":
+            check_cells.append((pr - offset, pc))
+            check_cells.append((pr + offset, pc))
+
+        cells_were_in_bounds = False
+
+        for r, c in check_cells:
+
+            if 0 <= r <= max_r and 0 <= c <= max_c:
+                cells_were_in_bounds = True
+
+                if arena[r][c] != OBSTACLE:
+                    return (r, c)
+
+        if not cells_were_in_bounds:
+            return None
+
+        offset += 1
+
+
+def find_and_expand_closest_boundary():
+    """
+    Executa quando não há "?".
+    """
+
+    global arena, pieces, messages, direction
+    # obtém a posição atual do robô (linha, coluna)
+
+    avaliable_directions = []
+
+    for dir_key in movements.keys():
+        if not boundaries_set[dir_key]:
+            avaliable_directions.append(dir_key)
+
+    if not avaliable_directions:
+        return None
+
+    available_edges = []
+
+    for dir_key in avaliable_directions:
+        target_pos = get_closest_edge_target(pieces[ROBO], dir_key)
+
+        if target_pos:
+            dist = heuristics(pieces[ROBO], target_pos)
+            available_edges.append((dist, dir_key, target_pos))
+
+    if not available_edges:
+        return None
+
+    available_edges.sort()
+
+    dist, target_dir, target_pos = available_edges[0]
+
+    # Retorna a direção e a posição-alvo
+    return (target_dir, target_pos)
 
 
 # --- funções de Movimento ---
@@ -366,53 +512,62 @@ def move_position(pos):
     global direction
     # Verifica se a direção está apontada para a posição, se não aponta a direção.
     # move o robo para a posição
-    movement = (pos[0] - pieces["robo"][0], pos[1] - pieces["robo"][1])
+    movement = (pos[0] - pieces[ROBO][0], pos[1] - pieces[ROBO][1])
     if movement not in directions:
         return False
 
-    if directions[movement] != direction:
-        direction = directions[movement]
+    direction = bot.gyroAngle(directions[movement])
 
-    update_agent(directions[movement])
+    zone = bot.move_analizy(movements[direction])
+    if zone:
+        update_agent(zone)
+        return True
+    return False
 
 
 def walk(destiny):
-    clear_screen()
     global steps_cont
-    if pieces["robo"] == destiny:
-        return
-    path = a_stars(destiny)
-    if path:
+
+    max_recalculations = 3
+    recalculations_count = 0
+
+    while tuple(pieces[ROBO]) != destiny and recalculations_count < max_recalculations:
+        path = a_stars(destiny)
+
+        if not path or len(path) <= 1:
+            break
+
+        movement_failed = False
         path.pop(0)
         for position in path:
-            clear_screen()
-            show_arena()
-            time.sleep(0.5)
-            if not move_position(position):
-                walk(destiny)
+            reslt = move_position(position)
+            show_arena(path)
+            if not reslt:
+                movement_failed = True
                 break
+        if movement_failed:
+            recalculations_count += 1
+
+    return True if tuple(pieces[ROBO]) == destiny else False
 
 
-def update_agent(action):
+def update_agent(zone):
     """Calcula a nova posição e lida com a expansão da arena."""
-    global arena, pieces, direction, square_char
+    global arena, pieces, square_char, hasCubes
 
-    if action not in movements:
+    if direction not in movements:
         return
 
-    # Verifica se o movimento é andar ou mudar a direção
-    if action != direction:
-        direction = action
-        return
+    movement = movements[direction]
 
-    movement = movements[action]
-
-    new_pos = pieces["robo"][0] + movement[0], pieces["robo"][1] + movement[1]
+    new_pos = pieces[ROBO][0] + movement[0], pieces[ROBO][1] + movement[1]
 
     # 2. Caso DENTRO DOS LIMITES ATUAIS
     if 0 <= new_pos[0] < len(arena) and 0 <= new_pos[1] < len(arena[0]):
         # ATUALIZA a posição do robo
-        pieces["robo"][0], pieces["robo"][1] = new_pos
+
+        if zone != OBSTACLE:
+            pieces[ROBO][0], pieces[ROBO][1] = new_pos
 
     # 3. Caso FORA DOS LIMITES (Expansão Necessária)
     else:
@@ -421,77 +576,90 @@ def update_agent(action):
         expand_arena()
 
         # Determina a nova posição do robô na borda recém-criada
-        if action == UP:
-            pieces["robo"][0] = 0
-        elif action == DOWN:
-            pieces["robo"][0] = len(arena) - 1
-        elif action == LEFT:
-            pieces["robo"][1] = 0
-        elif action == RIGHT:
-            pieces["robo"][1] = len(arena[0]) - 1
+        if direction == UP:
+            pieces[ROBO][0] = 0
+        elif direction == DOWN:
+            pieces[ROBO][0] = len(arena) - 1
+        elif direction == LEFT:
+            pieces[ROBO][1] = 0
+        elif direction == RIGHT:
+            pieces[ROBO][1] = len(arena[0]) - 1
+    arena[pieces[ROBO][0]][pieces[ROBO][1]] = EXPLORED
 
-    arena[pieces["robo"][0]][pieces["robo"][1]] = EXPLORED
     square_char = BLACK_SQUARE if square_char == WHITE_SQUARE else WHITE_SQUARE
+
+    if zone == OBSTACLE:
+        add_obstracle()
+    elif zone == DISCARD:
+        add_discard()
+    elif zone == PHARMACY:
+        hasCubes = True
+        arena[pieces[ROBO][0]][pieces[ROBO][1]] = PHARMACY
 
 
 # --- Função Principal ---
 
 
 def main_loop():
-    global hasCubes
+    global hasCubes, direction
     while True:
-        clear_screen()
         show_arena()
 
         # Verifica se já pegou os cubos
         if hasCubes:
             # Verifica se existe alguma área de descarte
-            if pieces["discards"]:
-                pos = pieces["discards"][0]
-                walk(pos)
-                pieces["discards"].popleft()
+            if pieces[DISCARD]:
+                # pos = pieces[DISCARD][0]
+                # walk(pos)
+                # # descarta cubo  <<<<<<<<<<<<<<<<<<<<<<<<<<<
+                # pieces[DISCARD].popleft()
+                # new_obs_name = f"{OBSTACLE}_{len(pieces)}"  # Cria um nome único
+                # pieces[new_obs_name] = [
+                #     pieces[ROBO][0],
+                #     pieces[ROBO][1],
+                # ]
+                # continue
+                ...
+
+        # Procurar o ? mais perto do robô e printar a pos dele na tela
+        closest_unexplored = find_closest_unexplored()
+        if closest_unexplored:
+            path_success = walk(closest_unexplored)
+
+            if path_success:
                 continue
-            else:
-                hasCubes = False
         else:
-            # Procurar o ? mais perto do robô e printar a pos dele na tela
-            closest_unexplored = find_closest_unexplored()
-            if closest_unexplored:
-                messages.append(f"🔍 Próximo alvo: {closest_unexplored}")
 
-                walk(closest_unexplored)
+            boundarie = find_and_expand_closest_boundary()
+
+            if boundarie:
+                walk(boundarie[1])
+                direction = bot.gyroAngle(boundarie[0])
+
+                zone = bot.move_analizy(movements[direction])
+                if zone:
+                    update_agent(zone)
+                else:
+                    mark_boundary()
                 continue
             else:
-                messages.append("🎉 Nenhuma célula '?' encontrada.")
-                # Começar a procurar as laterais para expandir a arena
-                for dir, movement in movements.items():
-                    if not boundaries_set[dir]:
-                        # O robo tem que se direcionar ate essa borda da arena e expandir
-                        ...
-
-        command = input("Comando: ").lower().strip()
-
-        if command == "q":
-            print("👋 Agente desativado. Até mais!")
-            break
-
-        if command in [UP, LEFT, DOWN, RIGHT]:
-            update_agent(command)
-
-        elif command == "f":
-            mark_boundary()
-
-        elif command == "c":
-            add_discard()
-        elif command == "x":
-            add_obstracle()
-        elif command == "cubes":
-            hasCubes = True
-
-        elif command:
-            print(f"Comando inválido: {command}. Tente novamente.")
+                print(f"Ponto inicial (mapa arenas): {bot.start}")
+                print(f"finalizou a busca.. voltando ao ponto inicial{pieces[START]}")
+                walk(pieces[START])
+                # Se 'expansion_happened' for False, significa que não há '?'
+                # E também não há bordas livres para expandir. A exploração terminou.
+                show_arena()
+                print("\n======================================")
+                print("🎉 EXPLORAÇÃO CONCLUÍDA! 🎉")
+                print("Nenhum '?' restante e todas as bordas estão seladas.")
+                print("============================= =========")
+                break  # Encerra o main_loop (e o programa)
 
 
 # Inicia o programa
 if __name__ == "__main__":
-    main_loop()
+    for i in range(1):
+        reset_simulation()
+        bot.arena = bot.generate_random_grid()
+        show_arena()
+        main_loop()

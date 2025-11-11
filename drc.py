@@ -226,15 +226,7 @@ def actuator(op):
 # Girar o robô para o angulo desejado
 async def gyro_angle(angle):
     global direction
-    await stop()
-    angle = adjust_angle(angle)
-    cont = 0
-    while gyroSensor() != angle and cont < 1200:
-        res = ((((gyroSensor() - angle) + 1800) % 3600) - 1800) * 0.6
-        motor_pair.move_tank(motor_pair.PAIR_1, int(res), int(-res))
-        cont += 1
-        await runloop.sleep_ms(2)
-    await stop()
+
     direction = angle
 
 
