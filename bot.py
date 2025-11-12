@@ -7,31 +7,32 @@ import os
 # Lista dos elementos especiais que devem ser posicionados na matriz.
 ELEMENTS_TO_PLACE = [
     ("R", 1),  # Robô (1 instância)
-    ("X", 1),  # Obstáculos (2 instâncias)
+    ("X", 2),  # Obstáculos (2 instâncias)
     ("O", 4),  # Descartes/Colecionáveis (4 instâncias)
-    ("F", 1),  # Ponto Final (1 instância)
+    ("F", 0),  # Ponto Final (1 instância)
 ]
 
 # Caractere de preenchimento padrão para as células vazias.
 EXPLORED_CHAR = "."
 
 # Intervalo de dimensões permitidas (linhas min/max, colunas min/max).
-MIN_ROWS, MAX_ROWS = 4, 8
-MIN_COLS, MAX_COLS = 5, 8
+MIN_ROWS, MAX_ROWS = 5, 6
+MIN_COLS, MAX_COLS = 5, 6
 
-robo = (0, 0)
+arena_id = None
+robo = None
 start = None
-direction = "a"
+direction = 0
 arena = None
 # --- FIM das Constantes ---
 
 
-def generate_random_grid():
+def generate_random_grid(id):
     """
     Gera uma matriz (deque de deques) com dimensões aleatórias e
     posiciona os elementos especiais (R, X, O, F) de forma não sobreposta.
     """
-    global robo, start
+    global robo, start, arena_id
 
     # 1. Escolhe as dimensões da matriz aleatoriamente dentro dos limites.
     num_rows = random.randint(MIN_ROWS, MAX_ROWS)
@@ -92,7 +93,18 @@ def generate_random_grid():
         # Adiciona a linha (deque) à matriz principal (deque).
         matrix.append(row_deque)
 
+    arena_id = id
     # Retorna a matriz gerada.
+
+    matrix = [
+        [".", "R", "O", "X", "."],
+        ["X", "X", "X", ".", "."],
+        [".", ".", ".", ".", "."],
+        [".", ".", ".", ".", "O"],
+        [".", "O", ".", ".", "."],
+        [".", ".", ".", ".", "."],
+    ]
+    start = robo = (0, 0)
     return matrix
 
 
@@ -107,7 +119,7 @@ def print_matrix():
 
     num_rows = len(arena)
     num_cols = len(arena[0]) if arena else 0
-    print(f"🗺️ Arena Gerada ")
+    print(f"🗺️ Arena Gerada id:{arena_id}")
 
     # Imprime uma linha superior para a borda.
     print("-" * (num_cols * 4 + 1))
@@ -117,7 +129,7 @@ def print_matrix():
         for c in range(num_cols):
 
             # 💡 Verifica se a coordenada atual (r, c) é a posição do robô.
-            if r == robo[0] and c == robo[1]:
+            if robo and r == robo[0] and c == robo[1]:
                 # Se for, o caractere a ser impresso é 'R'.
                 char_to_print = "R"
             else:
