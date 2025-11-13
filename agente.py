@@ -622,7 +622,7 @@ def main_loop():
 
 # Inicia o programa
 if __name__ == "__main__":
-    repeat = 10000
+    repeat = 10
     print("Iniciando simulação..")
     simulation["duration"] = time.time()
     for i in range(1, repeat + 1):
